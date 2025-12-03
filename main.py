@@ -146,6 +146,39 @@ async def create_all_data(data: EmoGoData):
         "entry_id": entry_id_str, 
     }
 
+@app.get("/data/download/json", tags=["Data Export (Download)"])
+async def download_all_json():
+    """
+    Provides a simple JSON dump of all collected data for TAs to download.
+    """
+    
+    sentiments_cursor = app.mongodb["sentiments"].find().to_list(1000)
+    gps_cursor = app.mongodb["gps_coordinates"].find().to_list(1000)
+    vlogs_cursor = app.mongodb["vlogs"].find().to_list(1000)
+
+    sentiments_data, gps_data, vlogs_data = await asyncio.gather(
+        sentiments_cursor, gps_cursor, vlogs_cursor
+    )
+
+    # Note: We must use the serialization helper here for clean JSON output
+    sentiments_data = serialize_mongodb_data(sentiments_data)
+    gps_data = serialize_mongodb_data(gps_data)
+    vlogs_data = serialize_mongodb_data(vlogs_data)
+    
+    # Filter and sort data (same as dashboard)
+    sentiments_data = [d for d in sentiments_data if d.get("entry_id")]
+    gps_data = [d for d in gps_data if d.get("entry_id")]
+    vlogs_data = [d for d in vlogs_data if d.get("entry_id")]
+    sentiments_data.sort(key=lambda x: x.get('entry_id', ''))
+    gps_data.sort(key=lambda x: x.get('entry_id', ''))
+    vlogs_data.sort(key=lambda x: x.get('entry_id', ''))
+
+    return {
+        "export_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "sentiments": sentiments_data,
+        "gps": gps_data,
+        "vlogs": vlogs_data,
+    }
 
 # ====================================================================
 # IV. Data Export API (REQUIRED: HTML Dashboard) (Unchanged logic)
