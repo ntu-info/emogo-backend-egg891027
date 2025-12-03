@@ -5,14 +5,12 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List, Optional
-from bson import ObjectId
-import uuid 
 import os
 import asyncio 
 
 # --- Configuration ---
 # IMPORTANT: Replace these with your actual credentials for deployment
-MONGODB_URI = "mongodb+srv://egg891027:Aa3750050@emogo.crf3gtd.mongodb.net/?appName=EmoGo" 
+MONGODB_URI = os.environ.get("MONGODB_URI")
 DB_NAME = "EmoGoDB"
 COUNTER_COLLECTION = "counters" # New collection for sequential IDs
 
