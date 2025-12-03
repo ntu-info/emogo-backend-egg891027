@@ -5,11 +5,10 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List, Optional
-from bson import ObjectId
 from dotenv import load_dotenv
-import uuid 
 import os
 import asyncio 
+import pytz
 
 # --- Configuration ---
 load_dotenv()
@@ -167,7 +166,7 @@ async def download_all_json():
     vlogs_data.sort(key=lambda x: x.get('entry_id', ''))
 
     return {
-        "export_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "export_time": datetime.now(pytz.timezone('Asia/Taipei')).strftime("%Y-%m-%d %H:%M:%S"),
         "sentiments": sentiments_data,
         "gps": gps_data,
         "vlogs": vlogs_data,
@@ -207,7 +206,7 @@ async def export_all_data(request: Request):
             "sentiments": sentiments_data,
             "gps": gps_data,
             "vlogs": vlogs_data,
-            "current_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "current_time": datetime.now(pytz.timezone('Asia/Taipei')).strftime("%Y-%m-%d %H:%M:%S")
         }
     )
 
