@@ -2,8 +2,6 @@
 [![Open in Visual Studio Code](https://classroom.github.com/assets/open-in-vscode-2e0aaae1b6195c2367325f4f02e2d04e9abb55f0b24a779b69b11b9e10269abc.svg)](https://classroom.github.com/online_ide?assignment_repo_id=21887949&assignment_repo_type=AssignmentRepo)
 # Deploy FastAPI on Render
 
-===========================[My Dashboard](https://emogo-backend-egg891027.onrender.com/data/export)===========================
-
 Use this repo as a template to deploy a Python [FastAPI](https://fastapi.tiangolo.com) service on Render.
 
 See https://render.com/docs/deploy-fastapi or follow the steps below:
@@ -26,6 +24,6 @@ Or simply click:
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/render-examples/fastapi)
 
-## Thanks
+## Click Here¡I
 
-Thanks to [Harish](https://harishgarg.com) for the [inspiration to create a FastAPI quickstart for Render](https://twitter.com/harishkgarg/status/1435084018677010434) and for some sample code!
+=========================== [This Is My Dashboard](https://emogo-backend-egg891027.onrender.com/data/export) ===========================
