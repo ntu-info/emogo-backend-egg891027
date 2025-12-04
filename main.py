@@ -1,10 +1,11 @@
 from fastapi import FastAPI, status, HTTPException, Request
 from fastapi.templating import Jinja2Templates 
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List, Optional
+from fastapi.encoders import jsonable_encoder
 from dotenv import load_dotenv
 import os
 import asyncio 
@@ -150,36 +151,31 @@ async def create_all_data(data: EmoGoData):
 
 @app.get("/data/download/json", tags=["Data Export (Download)"])
 async def download_all_json():
-    sentiments_cursor = app.mongodb["sentiments"].find().to_list(1000)
-    gps_cursor = app.mongodb["gps_coordinates"].find().to_list(1000)
-    vlogs_cursor = app.mongodb["vlogs"].find().to_list(1000)
+    sentiments_cursor = app.mongodb["sentiments"].find().to_list(length=None)
+    gps_cursor = app.mongodb["gps_coordinates"].find().to_list(length=None)
+    vlogs_cursor = app.mongodb["vlogs"].find().to_list(length=None)
 
-    sentiments_data, gps_data, vlogs_data = await asyncio.gather(
-        sentiments_cursor, gps_cursor, vlogs_cursor
-    )
+    sentiments_data = await sentiments_cursor
+    gps_data = await gps_cursor
+    vlogs_data = await vlogs_cursor
 
     sentiments_data = serialize_mongodb_data(sentiments_data)
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
-    
-    # Filter incomplete data
-    sentiments_data = [d for d in sentiments_data if d.get("entry_id")]
-    gps_data = [d for d in gps_data if d.get("entry_id")]
-    vlogs_data = [d for d in vlogs_data if d.get("entry_id")]
-    
+        
     sentiments_data.sort(key=lambda x: x.get('entry_id', ''))
     gps_data.sort(key=lambda x: x.get('entry_id', ''))
     vlogs_data.sort(key=lambda x: x.get('entry_id', ''))
 
-    # Use Taipei time for export metadata
     tw_time = datetime.now(pytz.timezone('Asia/Taipei')).strftime("%Y-%m-%d %H:%M:%S")
 
-    return {
+    export_content = {
         "export_time": tw_time,
         "sentiments": sentiments_data,
         "gps": gps_data,
         "vlogs": vlogs_data,
     }
+    return JSONResponse(content=jsonable_encoder(export_content))
 
 
 # ====================================================================
