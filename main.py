@@ -1,10 +1,11 @@
 from fastapi import FastAPI, status, HTTPException, Request
 from fastapi.templating import Jinja2Templates 
-# ? [修改] 新增 JSONResponse 引入
 from fastapi.responses import HTMLResponse, JSONResponse 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from datetime import datetime
+# ? [重要] 確保引入這個工具
+from fastapi.encoders import jsonable_encoder
 from typing import List, Optional
 from dotenv import load_dotenv
 import os
@@ -156,7 +157,7 @@ async def create_all_data(data: EmoGoData):
         "entry_id": entry_id_str, 
     }
 
-# ? [關鍵修改] 改為回傳 JSONResponse 並強制下載檔案 ?
+# ? [修改完成] 這裡修復了 JSON 下載錯誤 ?
 @app.get("/data/download/json", tags=["Data Export (Download)"])
 async def download_all_json():
     sentiments_cursor = app.mongodb["sentiments"].find().to_list(1000)
@@ -167,6 +168,7 @@ async def download_all_json():
         sentiments_cursor, gps_cursor, vlogs_cursor
     )
 
+    # 這裡會把 timestamp 轉成 datetime 物件
     sentiments_data = serialize_mongodb_data(sentiments_data)
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
@@ -189,9 +191,13 @@ async def download_all_json():
         "vlogs": vlogs_data,
     }
 
-    # ? 使用 JSONResponse 設定 Content-Disposition 標頭，強制瀏覽器下載 ?
+    # ? [關鍵修復] 使用 jsonable_encoder 把 datetime 轉回 string ?
+    # 這一步會把 export_content 裡面的所有 datetime 物件轉成 ISO 格式字串
+    # 這樣 JSONResponse 就不會報錯了
+    json_compatible_content = jsonable_encoder(export_content)
+
     return JSONResponse(
-        content=export_content,
+        content=json_compatible_content,
         headers={
             "Content-Disposition": 'attachment; filename="emogo_all_data.json"'
         }
