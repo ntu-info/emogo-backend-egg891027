@@ -1,10 +1,9 @@
 from fastapi import FastAPI, status, HTTPException, Request
 from fastapi.templating import Jinja2Templates 
-from fastapi.responses import HTMLResponse, JSONResponse 
+from fastapi.responses import HTMLResponse, RedirectResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from datetime import datetime
-from fastapi.encoders import jsonable_encoder
 from typing import List, Optional
 from dotenv import load_dotenv
 import os
@@ -29,17 +28,9 @@ def date_format_filter(value):
     if isinstance(value, datetime):
         # Convert to UTC then to Taipei time
         if value.tzinfo is None:
-             value = value.replace(tzinfo=pytz.utc)
+            value = value.replace(tzinfo=pytz.utc)
         tw_dt = value.astimezone(pytz.timezone('Asia/Taipei'))
         return tw_dt.strftime("%Y-%m-%d %H:%M:%S")
-    # Fallback for string timestamps
-    if isinstance(value, str):
-        try:
-            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            tw_dt = dt.astimezone(pytz.timezone('Asia/Taipei'))
-            return tw_dt.strftime("%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            pass
     return str(value)
 templates.env.filters['date_format'] = date_format_filter
 
@@ -118,7 +109,8 @@ async def create_all_data(data: EmoGoData):
         entry_id = await get_next_sequence_value("emogo_entry_id")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate sequential ID: {e}")
-        
+    
+    # ? FIX: Change ID length to 4 digits (e.g., 0001) as requested
     entry_id_str = str(entry_id).zfill(4) 
     
     # --- 1. GPS Collection ---
@@ -137,7 +129,7 @@ async def create_all_data(data: EmoGoData):
         "user_name": data_dict.get("NAME"),
         "timestamp": data_dict.get("TIME"),
         "sentiment_category": data_dict.get("SENTIMENT"),
-        "mood_score": data_dict.get("MOOD_SCORE"), 
+        "mood_score": data_dict.get("MOOD_SCORE"),
         "activity": data_dict.get("ACTIVITY"), 
     }
     await app.mongodb["sentiments"].insert_one(sentiment_doc)
@@ -156,14 +148,8 @@ async def create_all_data(data: EmoGoData):
         "entry_id": entry_id_str, 
     }
 
-
-# ====================================================================
-# IV. Data Export API (JSON Download) - Modified
-# ====================================================================
-
 @app.get("/data/download/json", tags=["Data Export (Download)"])
 async def download_all_json():
-    # 1. Fetch all data
     sentiments_cursor = app.mongodb["sentiments"].find().to_list(1000)
     gps_cursor = app.mongodb["gps_coordinates"].find().to_list(1000)
     vlogs_cursor = app.mongodb["vlogs"].find().to_list(1000)
@@ -172,38 +158,32 @@ async def download_all_json():
         sentiments_cursor, gps_cursor, vlogs_cursor
     )
 
-    # 2. Serialize data (convert ObjectId to str, parse timestamps)
     sentiments_data = serialize_mongodb_data(sentiments_data)
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
     
-    # 3. Sort data by entry_id 
+    # Filter incomplete data
+    sentiments_data = [d for d in sentiments_data if d.get("entry_id")]
+    gps_data = [d for d in gps_data if d.get("entry_id")]
+    vlogs_data = [d for d in vlogs_data if d.get("entry_id")]
+    
     sentiments_data.sort(key=lambda x: x.get('entry_id', ''))
     gps_data.sort(key=lambda x: x.get('entry_id', ''))
     vlogs_data.sort(key=lambda x: x.get('entry_id', ''))
 
+    # Use Taipei time for export metadata
     tw_time = datetime.now(pytz.timezone('Asia/Taipei')).strftime("%Y-%m-%d %H:%M:%S")
 
-    export_content = {
+    return {
         "export_time": tw_time,
         "sentiments": sentiments_data,
         "gps": gps_data,
         "vlogs": vlogs_data,
     }
 
-    # 🌟 [關鍵修正] 使用 jsonable_encoder 處理 datetime 物件
-    json_compatible_content = jsonable_encoder(export_content)
-
-    return JSONResponse(
-        content=json_compatible_content,
-        headers={
-            "Content-Disposition": 'attachment; filename="emogo_all_data.json"'
-        }
-    )
-
 
 # ====================================================================
-# V. Data Export API (HTML Dashboard)
+# IV. Data Export API (HTML Dashboard)
 # ====================================================================
 
 @app.get("/data/export", response_class=HTMLResponse, tags=["Data Export (Required)"])
@@ -220,8 +200,6 @@ async def export_all_data(request: Request):
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
     
-    # For HTML dashboard, we keep filtering to ensure table looks clean
-    # If you want to show old data here too, remove these 3 lines
     sentiments_data = [d for d in sentiments_data if d.get("entry_id")]
     gps_data = [d for d in gps_data if d.get("entry_id")]
     vlogs_data = [d for d in vlogs_data if d.get("entry_id")]
@@ -245,7 +223,7 @@ async def export_all_data(request: Request):
 
 
 # ====================================================================
-# VI. Health Check
+# V. Health Check
 # ====================================================================
 
 @app.get("/", tags=["Health Check"])
@@ -253,7 +231,7 @@ async def health_check():
     return {"status": "ok", "service": "EmoGo Backend", "version": "v1"}
 
 # ====================================================================
-# VII. DATA MANAGEMENT ROUTES
+# VI. DATA MANAGEMENT ROUTES
 # ====================================================================
 
 @app.delete("/api/v1/data/clear-all", tags=["Admin/Testing"])
@@ -273,12 +251,15 @@ async def clear_all_data():
         print(f"Error during data clear: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to clear data: {e}")
 
+# ? NEW: Delete Single Entry (Synced with Frontend)
 @app.delete("/api/v1/data/entry", tags=["Data Collection"])
 async def delete_single_entry(user_name: str, timestamp: str):
     """
     Deletes a specific entry based on user_name and timestamp.
+    Also decrements the sequence counter by 1.
     """
     query = {"user_name": user_name, "timestamp": timestamp}
+    
     try:
         r1 = await app.mongodb["sentiments"].delete_one(query)
         r2 = await app.mongodb["gps_coordinates"].delete_one(query)
@@ -287,13 +268,13 @@ async def delete_single_entry(user_name: str, timestamp: str):
         if r1.deleted_count == 0 and r2.deleted_count == 0 and r3.deleted_count == 0:
              raise HTTPException(status_code=404, detail="Entry not found in backend")
         
-        # Decrement sequence counter
+        # ? Decrement sequence counter by 1 on successful delete
         await app.mongodb[COUNTER_COLLECTION].update_one(
             {"_id": "emogo_entry_id"},
             {"$inc": {"seq": -1}}
         )
 
-        return {"message": "Entry deleted successfully from backend"}
+        return {"message": "Entry deleted successfully from backend and counter updated"}
         
     except Exception as e:
         print(f"Error deleting entry: {e}")
