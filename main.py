@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from datetime import datetime
-# ? [­«­n] ½T«O¤Ş¤J³o­Ó¤u¨ã
+# ğŸŒŸ [é‡è¦] ç¢ºä¿å¼•å…¥é€™å€‹å·¥å…·
 from fastapi.encoders import jsonable_encoder
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -157,7 +157,7 @@ async def create_all_data(data: EmoGoData):
         "entry_id": entry_id_str, 
     }
 
-# ? [­×§ï§¹¦¨] ³o¸Ì­×´_¤F JSON ¤U¸ü¿ù»~ ?
+# ğŸŒŸ [ä¿®æ”¹å®Œæˆ] é€™è£¡ä¿®å¾©äº† JSON ä¸‹è¼‰éŒ¯èª¤ ğŸŒŸ
 @app.get("/data/download/json", tags=["Data Export (Download)"])
 async def download_all_json():
     sentiments_cursor = app.mongodb["sentiments"].find().to_list(1000)
@@ -168,7 +168,7 @@ async def download_all_json():
         sentiments_cursor, gps_cursor, vlogs_cursor
     )
 
-    # ³o¸Ì·|§â timestamp Âà¦¨ datetime ª«¥ó
+    # é€™è£¡æœƒæŠŠ timestamp è½‰æˆ datetime ç‰©ä»¶
     sentiments_data = serialize_mongodb_data(sentiments_data)
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
@@ -191,9 +191,9 @@ async def download_all_json():
         "vlogs": vlogs_data,
     }
 
-    # ? [ÃöÁä­×´_] ¨Ï¥Î jsonable_encoder §â datetime Âà¦^ string ?
-    # ³o¤@¨B·|§â export_content ¸Ì­±ªº©Ò¦³ datetime ª«¥óÂà¦¨ ISO ®æ¦¡¦r¦ê
-    # ³o¼Ë JSONResponse ´N¤£·|³ø¿ù¤F
+    # ğŸŒŸ [é—œéµä¿®å¾©] ä½¿ç”¨ jsonable_encoder æŠŠ datetime è½‰å› string ğŸŒŸ
+    # é€™ä¸€æ­¥æœƒæŠŠ export_content è£¡é¢çš„æ‰€æœ‰ datetime ç‰©ä»¶è½‰æˆ ISO æ ¼å¼å­—ä¸²
+    # é€™æ¨£ JSONResponse å°±ä¸æœƒå ±éŒ¯äº†
     json_compatible_content = jsonable_encoder(export_content)
 
     return JSONResponse(
