@@ -4,7 +4,6 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from datetime import datetime
-# 🌟 [重要] 確保引入這個工具
 from fastapi.encoders import jsonable_encoder
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -157,9 +156,14 @@ async def create_all_data(data: EmoGoData):
         "entry_id": entry_id_str, 
     }
 
-# 🌟 [修改完成] 這裡修復了 JSON 下載錯誤 🌟
+
+# ====================================================================
+# IV. Data Export API (JSON Download) - Modified
+# ====================================================================
+
 @app.get("/data/download/json", tags=["Data Export (Download)"])
 async def download_all_json():
+    # 1. Fetch all data
     sentiments_cursor = app.mongodb["sentiments"].find().to_list(1000)
     gps_cursor = app.mongodb["gps_coordinates"].find().to_list(1000)
     vlogs_cursor = app.mongodb["vlogs"].find().to_list(1000)
@@ -168,16 +172,12 @@ async def download_all_json():
         sentiments_cursor, gps_cursor, vlogs_cursor
     )
 
-    # 這裡會把 timestamp 轉成 datetime 物件
+    # 2. Serialize data (convert ObjectId to str, parse timestamps)
     sentiments_data = serialize_mongodb_data(sentiments_data)
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
     
-    # Filter incomplete data
-    sentiments_data = [d for d in sentiments_data if d.get("entry_id")]
-    gps_data = [d for d in gps_data if d.get("entry_id")]
-    vlogs_data = [d for d in vlogs_data if d.get("entry_id")]
-    
+    # 3. Sort data by entry_id 
     sentiments_data.sort(key=lambda x: x.get('entry_id', ''))
     gps_data.sort(key=lambda x: x.get('entry_id', ''))
     vlogs_data.sort(key=lambda x: x.get('entry_id', ''))
@@ -191,9 +191,7 @@ async def download_all_json():
         "vlogs": vlogs_data,
     }
 
-    # 🌟 [關鍵修復] 使用 jsonable_encoder 把 datetime 轉回 string 🌟
-    # 這一步會把 export_content 裡面的所有 datetime 物件轉成 ISO 格式字串
-    # 這樣 JSONResponse 就不會報錯了
+    # 🌟 [關鍵修正] 使用 jsonable_encoder 處理 datetime 物件
     json_compatible_content = jsonable_encoder(export_content)
 
     return JSONResponse(
@@ -205,7 +203,7 @@ async def download_all_json():
 
 
 # ====================================================================
-# IV. Data Export API (HTML Dashboard)
+# V. Data Export API (HTML Dashboard)
 # ====================================================================
 
 @app.get("/data/export", response_class=HTMLResponse, tags=["Data Export (Required)"])
@@ -222,6 +220,8 @@ async def export_all_data(request: Request):
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
     
+    # For HTML dashboard, we keep filtering to ensure table looks clean
+    # If you want to show old data here too, remove these 3 lines
     sentiments_data = [d for d in sentiments_data if d.get("entry_id")]
     gps_data = [d for d in gps_data if d.get("entry_id")]
     vlogs_data = [d for d in vlogs_data if d.get("entry_id")]
@@ -245,7 +245,7 @@ async def export_all_data(request: Request):
 
 
 # ====================================================================
-# V. Health Check
+# VI. Health Check
 # ====================================================================
 
 @app.get("/", tags=["Health Check"])
@@ -253,7 +253,7 @@ async def health_check():
     return {"status": "ok", "service": "EmoGo Backend", "version": "v1"}
 
 # ====================================================================
-# VI. DATA MANAGEMENT ROUTES
+# VII. DATA MANAGEMENT ROUTES
 # ====================================================================
 
 @app.delete("/api/v1/data/clear-all", tags=["Admin/Testing"])
