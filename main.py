@@ -1,6 +1,6 @@
 from fastapi import FastAPI, status, HTTPException, Request
 from fastapi.templating import Jinja2Templates 
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -26,20 +26,11 @@ templates = Jinja2Templates(directory="templates")
 def date_format_filter(value):
     """Converts datetime objects to a readable string format (Asia/Taipei)."""
     if isinstance(value, datetime):
-        # 1. Force UTC timezone if naive
+        # Convert to UTC then to Taipei time
         if value.tzinfo is None:
-             value = value.replace(tzinfo=pytz.utc)
-        # 2. Convert to Taipei time
+            value = value.replace(tzinfo=pytz.utc)
         tw_dt = value.astimezone(pytz.timezone('Asia/Taipei'))
         return tw_dt.strftime("%Y-%m-%d %H:%M:%S")
-    # If it's a string, try to parse it first
-    if isinstance(value, str):
-        try:
-            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            tw_dt = dt.astimezone(pytz.timezone('Asia/Taipei'))
-            return tw_dt.strftime("%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            pass
     return str(value)
 templates.env.filters['date_format'] = date_format_filter
 
@@ -51,7 +42,6 @@ def serialize_mongodb_data(doc_list: List[dict]) -> List[dict]:
             doc["_id"] = str(doc["_id"])
         if doc.get("timestamp") and isinstance(doc["timestamp"], str):
              try:
-                 # Make sure it's parsed as datetime for the filter to work
                  doc["timestamp"] = datetime.fromisoformat(doc["timestamp"].replace('Z', '+00:00'))
              except ValueError:
                  pass 
@@ -119,8 +109,9 @@ async def create_all_data(data: EmoGoData):
         entry_id = await get_next_sequence_value("emogo_entry_id")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate sequential ID: {e}")
-        
-    entry_id_str = str(entry_id).zfill(6) 
+    
+    # ? FIX: Change ID length to 4 digits (e.g., 0001) as requested
+    entry_id_str = str(entry_id).zfill(4) 
     
     # --- 1. GPS Collection ---
     gps_doc = {
@@ -138,7 +129,7 @@ async def create_all_data(data: EmoGoData):
         "user_name": data_dict.get("NAME"),
         "timestamp": data_dict.get("TIME"),
         "sentiment_category": data_dict.get("SENTIMENT"),
-        "mood_score": data_dict.get("MOOD_SCORE"), # Saving the score
+        "mood_score": data_dict.get("MOOD_SCORE"),
         "activity": data_dict.get("ACTIVITY"), 
     }
     await app.mongodb["sentiments"].insert_one(sentiment_doc)
@@ -260,11 +251,12 @@ async def clear_all_data():
         print(f"Error during data clear: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to clear data: {e}")
 
+# ? NEW: Delete Single Entry (Synced with Frontend)
 @app.delete("/api/v1/data/entry", tags=["Data Collection"])
 async def delete_single_entry(user_name: str, timestamp: str):
     """
     Deletes a specific entry based on user_name and timestamp.
-    Syncs deletion from frontend app.
+    Also decrements the sequence counter by 1.
     """
     query = {"user_name": user_name, "timestamp": timestamp}
     
@@ -275,8 +267,14 @@ async def delete_single_entry(user_name: str, timestamp: str):
         
         if r1.deleted_count == 0 and r2.deleted_count == 0 and r3.deleted_count == 0:
              raise HTTPException(status_code=404, detail="Entry not found in backend")
-             
-        return {"message": "Entry deleted successfully from backend"}
+        
+        # ? Decrement sequence counter by 1 on successful delete
+        await app.mongodb[COUNTER_COLLECTION].update_one(
+            {"_id": "emogo_entry_id"},
+            {"$inc": {"seq": -1}}
+        )
+
+        return {"message": "Entry deleted successfully from backend and counter updated"}
         
     except Exception as e:
         print(f"Error deleting entry: {e}")
