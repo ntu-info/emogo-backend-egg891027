@@ -8,7 +8,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 import os
 import asyncio 
-import pytz
+import pytz 
 
 # --- Configuration ---
 load_dotenv()
@@ -24,9 +24,22 @@ templates = Jinja2Templates(directory="templates")
 
 # --- Custom Jinja2 Filter for Date Formatting ---
 def date_format_filter(value):
-    """Converts datetime objects to a readable string format."""
+    """Converts datetime objects to a readable string format (Asia/Taipei)."""
     if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d %H:%M:%S")
+        # 1. Force UTC timezone if naive
+        if value.tzinfo is None:
+             value = value.replace(tzinfo=pytz.utc)
+        # 2. Convert to Taipei time
+        tw_dt = value.astimezone(pytz.timezone('Asia/Taipei'))
+        return tw_dt.strftime("%Y-%m-%d %H:%M:%S")
+    # If it's a string, try to parse it first
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            tw_dt = dt.astimezone(pytz.timezone('Asia/Taipei'))
+            return tw_dt.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            pass
     return str(value)
 templates.env.filters['date_format'] = date_format_filter
 
@@ -38,6 +51,7 @@ def serialize_mongodb_data(doc_list: List[dict]) -> List[dict]:
             doc["_id"] = str(doc["_id"])
         if doc.get("timestamp") and isinstance(doc["timestamp"], str):
              try:
+                 # Make sure it's parsed as datetime for the filter to work
                  doc["timestamp"] = datetime.fromisoformat(doc["timestamp"].replace('Z', '+00:00'))
              except ValueError:
                  pass 
@@ -106,7 +120,7 @@ async def create_all_data(data: EmoGoData):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate sequential ID: {e}")
         
-    entry_id_str = str(entry_id).zfill(4) 
+    entry_id_str = str(entry_id).zfill(6) 
     
     # --- 1. GPS Collection ---
     gps_doc = {
@@ -124,7 +138,7 @@ async def create_all_data(data: EmoGoData):
         "user_name": data_dict.get("NAME"),
         "timestamp": data_dict.get("TIME"),
         "sentiment_category": data_dict.get("SENTIMENT"),
-        "mood_score": data_dict.get("MOOD_SCORE"), 
+        "mood_score": data_dict.get("MOOD_SCORE"), # Saving the score
         "activity": data_dict.get("ACTIVITY"), 
     }
     await app.mongodb["sentiments"].insert_one(sentiment_doc)
@@ -157,6 +171,7 @@ async def download_all_json():
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
     
+    # Filter incomplete data
     sentiments_data = [d for d in sentiments_data if d.get("entry_id")]
     gps_data = [d for d in gps_data if d.get("entry_id")]
     vlogs_data = [d for d in vlogs_data if d.get("entry_id")]
@@ -165,8 +180,11 @@ async def download_all_json():
     gps_data.sort(key=lambda x: x.get('entry_id', ''))
     vlogs_data.sort(key=lambda x: x.get('entry_id', ''))
 
+    # Use Taipei time for export metadata
+    tw_time = datetime.now(pytz.timezone('Asia/Taipei')).strftime("%Y-%m-%d %H:%M:%S")
+
     return {
-        "export_time": datetime.now(pytz.timezone('Asia/Taipei')).strftime("%Y-%m-%d %H:%M:%S"),
+        "export_time": tw_time,
         "sentiments": sentiments_data,
         "gps": gps_data,
         "vlogs": vlogs_data,
@@ -199,6 +217,8 @@ async def export_all_data(request: Request):
     gps_data.sort(key=lambda x: x.get('entry_id', ''))
     vlogs_data.sort(key=lambda x: x.get('entry_id', ''))
 
+    tw_time = datetime.now(pytz.timezone('Asia/Taipei')).strftime("%Y-%m-%d %H:%M:%S")
+
     return templates.TemplateResponse(
         "dashboard.html", 
         {
@@ -206,7 +226,7 @@ async def export_all_data(request: Request):
             "sentiments": sentiments_data,
             "gps": gps_data,
             "vlogs": vlogs_data,
-            "current_time": datetime.now(pytz.timezone('Asia/Taipei')).strftime("%Y-%m-%d %H:%M:%S")
+            "current_time": tw_time
         }
     )
 
@@ -220,7 +240,7 @@ async def health_check():
     return {"status": "ok", "service": "EmoGo Backend", "version": "v1"}
 
 # ====================================================================
-# VI. DATA CLEAR ROUTE
+# VI. DATA MANAGEMENT ROUTES
 # ====================================================================
 
 @app.delete("/api/v1/data/clear-all", tags=["Admin/Testing"])
@@ -239,3 +259,25 @@ async def clear_all_data():
     except Exception as e:
         print(f"Error during data clear: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to clear data: {e}")
+
+@app.delete("/api/v1/data/entry", tags=["Data Collection"])
+async def delete_single_entry(user_name: str, timestamp: str):
+    """
+    Deletes a specific entry based on user_name and timestamp.
+    Syncs deletion from frontend app.
+    """
+    query = {"user_name": user_name, "timestamp": timestamp}
+    
+    try:
+        r1 = await app.mongodb["sentiments"].delete_one(query)
+        r2 = await app.mongodb["gps_coordinates"].delete_one(query)
+        r3 = await app.mongodb["vlogs"].delete_one(query)
+        
+        if r1.deleted_count == 0 and r2.deleted_count == 0 and r3.deleted_count == 0:
+             raise HTTPException(status_code=404, detail="Entry not found in backend")
+             
+        return {"message": "Entry deleted successfully from backend"}
+        
+    except Exception as e:
+        print(f"Error deleting entry: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete entry: {e}")
