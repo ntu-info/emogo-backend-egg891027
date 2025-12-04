@@ -151,18 +151,21 @@ async def create_all_data(data: EmoGoData):
 
 @app.get("/data/download/json", tags=["Data Export (Download)"])
 async def download_all_json():
+    # 1. 抓取資料
     sentiments_cursor = app.mongodb["sentiments"].find().to_list(length=None)
     gps_cursor = app.mongodb["gps_coordinates"].find().to_list(length=None)
     vlogs_cursor = app.mongodb["vlogs"].find().to_list(length=None)
 
-    sentiments_data = await sentiments_cursor
-    gps_data = await gps_cursor
-    vlogs_data = await vlogs_cursor
+    sentiments_data, gps_data, vlogs_data = await asyncio.gather(
+        sentiments_cursor, gps_cursor, vlogs_cursor
+    )
 
+    # 2. 處理資料 (這裡雖然處理了 ID，但時間可能還是 datetime 物件)
     sentiments_data = serialize_mongodb_data(sentiments_data)
     gps_data = serialize_mongodb_data(gps_data)
     vlogs_data = serialize_mongodb_data(vlogs_data)
-        
+    
+    # 3. 排序
     sentiments_data.sort(key=lambda x: x.get('entry_id', ''))
     gps_data.sort(key=lambda x: x.get('entry_id', ''))
     vlogs_data.sort(key=lambda x: x.get('entry_id', ''))
@@ -175,7 +178,18 @@ async def download_all_json():
         "gps": gps_data,
         "vlogs": vlogs_data,
     }
-    return JSONResponse(content=jsonable_encoder(export_content))
+
+    # 4. 🌟 關鍵步驟：先把 datetime 全部轉成字串 🌟
+    # 這一步就是模擬 FastAPI 網頁顯示時的自動功能
+    json_compatible_content = jsonable_encoder(export_content)
+
+    # 5. 回傳檔案 (現在資料是乾淨的字串了，不會報錯)
+    return JSONResponse(
+        content=json_compatible_content,
+        headers={
+            "Content-Disposition": 'attachment; filename="emogo_all_data.json"'
+        }
+    )
 
 
 # ====================================================================
